@@ -2,12 +2,18 @@ package org.eclipse.buildship.kotlin;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
@@ -15,9 +21,16 @@ import org.eclipse.core.runtime.FileLocator;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.jdt.launching.JavaRuntime;
 import org.jetbrains.kotlin.core.model.ScriptTemplateProviderEx;
+import org.jetbrains.kotlin.script.KotlinScriptExternalDependencies;
+import org.jetbrains.kotlin.script.ScriptContents;
+import org.jetbrains.kotlin.script.ScriptContents.Position;
 import org.jetbrains.kotlin.script.ScriptDependenciesResolver;
+import org.jetbrains.kotlin.script.ScriptTemplateDefinition;
 import org.jetbrains.kotlin.script.ScriptTemplateProvider;
 import org.osgi.framework.Bundle;
+
+import kotlin.Unit;
+import kotlin.jvm.functions.Function3;
 
 public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProviderEx {
 	private static String[] classpathEntries = new String[] {
@@ -60,7 +73,24 @@ public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProvide
 	
 	@Override
 	public ScriptDependenciesResolver getResolver() {
-		return null;
+		return new ScriptDependenciesResolver() {
+			ScriptDependenciesResolver delegateResolver = loadAnnotationResolver();
+			
+			@Override
+			public Future<KotlinScriptExternalDependencies> resolve(
+					ScriptContents content,
+					Map<String, ? extends Object> environment,
+					Function3<? super ReportSeverity, ? super String, ? super Position, Unit> report,
+					KotlinScriptExternalDependencies dependencies) {
+				
+				// NOTE: resolve() method is only executed on script file opening. There're no updates on file modification (KT-13857). 
+				if (content.getText().toString().contains("standard")) {
+					return delegateResolver.resolve(content, environment, report, dependencies);
+				}
+				
+				return null;
+			}
+		};
 	}
 
 	@Override
@@ -76,5 +106,29 @@ public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProvide
 		} 
 		
 		return Collections.emptyList();
+	}
+	
+	private ScriptDependenciesResolver loadAnnotationResolver() {
+		List<URL> urls = new ArrayList<>();
+		try {
+			for (String entry : getTemplateClassClasspath()) {
+				urls.add(new File(entry).toURI().toURL());
+			}
+			
+			URLClassLoader loader = new URLClassLoader(
+					urls.toArray(new URL[0]),
+					this.getClass().getClassLoader());
+			
+			Class<?> klass = loader.loadClass(getTemplateClassName());
+			ScriptTemplateDefinition scriptTemplateDefinition = klass.getAnnotation(ScriptTemplateDefinition.class);
+			Class<? extends ScriptDependenciesResolver> resolverClass = scriptTemplateDefinition.resolver();
+			ScriptDependenciesResolver resolver = resolverClass.getConstructor().newInstance();
+			
+			return resolver;
+		} catch (MalformedURLException | ClassNotFoundException | InstantiationException | 
+				IllegalAccessException | IllegalArgumentException | InvocationTargetException | 
+				NoSuchMethodException | SecurityException e) {
+			throw new RuntimeException(e);
+		}
 	}
 }
