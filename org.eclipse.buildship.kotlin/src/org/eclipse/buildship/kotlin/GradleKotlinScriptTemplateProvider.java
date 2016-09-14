@@ -19,7 +19,6 @@ import org.jetbrains.kotlin.script.ScriptDependenciesResolver;
 import org.jetbrains.kotlin.script.ScriptTemplateProvider;
 import org.osgi.framework.Bundle;
 
-// NOTE: ScriptTemplateProviderEx interface should be implemented
 public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProviderEx {
 	private static String[] classpathEntries = new String[] {
 				"/bin",
@@ -29,8 +28,9 @@ public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProvide
 				"/lib/slf4j-api-1.7.10.jar"
 	};
 
+	// NOTE: getDependenciesClasspath -> getTemplateClassClasspath method rename
 	@Override
-	public Iterable<String> getDependenciesClasspath() {
+	public Iterable<String> getTemplateClassClasspath() {
 		Bundle pluginBundle = Platform.getBundle(Activator.PLUGIN_ID);
 		ArrayList<String> result = new ArrayList<String>();
 		for (String path : classpathEntries) {
@@ -43,41 +43,30 @@ public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProvide
 		
 		return result;
 	}
-	
+
+	@Override
+	public String getTemplateClassName() {
+		// NOTE: String is now returned
+		return "org.eclipse.buildship.kotlin.KotlinBuildScript";
+	}
+
 	@Override
 	public Map<String, Object> getEnvironment(IFile file) {
 		HashMap<String, Object> environment = new HashMap<String, Object>();
 		environment.put("rtPath", rtPath());
-		
-		// NOTE: It's now possible to get environment per script file
 		environment.put("rootProject", file.getProject().getLocation().toFile());
 		return environment;
 	}
 	
-	// NOTE: getId(), getVersion() and isValid() methods were removed. What do you think, are they needed?
-	
-	// NOTE: list is now expected
-	@Override
-	public List<String> getTemplateClassNames() {
-		ArrayList<String> list = new ArrayList<String>();
-		list.add("org.eclipse.buildship.kotlin.KotlinBuildScript");
-		return list;
-	}
-
 	@Override
 	public ScriptDependenciesResolver getResolver() {
-		// NOTE: This resolver will be executed in Eclipse, but it doesn't work now.
 		return null;
 	}
 
 	@Override
 	public boolean isApplicable(IFile file) {
 		IProject project = file.getProject();
-		
-		// NOTE: now it's possible to apply more confident decision about applicability, but
-		// pattern in @ScriptTemplateDefinition should still be valid
-		
-		return true;
+		return file.getName().equals("build.gradle.kts");
 	}
 	
 	private List<File> rtPath() {
@@ -88,5 +77,4 @@ public class GradleKotlinScriptTemplateProvider implements ScriptTemplateProvide
 		
 		return Collections.emptyList();
 	}
-
 }
